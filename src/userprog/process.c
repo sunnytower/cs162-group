@@ -4,6 +4,7 @@
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
@@ -69,6 +70,40 @@ pid_t process_execute(const char* file_name) {
   return tid;
 }
 
+void fill_stack(char* file_name, void** esp) {
+  bool end_of_word = true;
+  int argc = 0;
+  /* works for (--words) purpose */
+  char* words = *esp;
+  for (int i = strlen(file_name) - 1; i >= 0; --i) {
+    char c = file_name[i];
+    if (!isspace(c)) {
+      if (end_of_word) {
+        *(--words) = '\0';
+        ++argc;
+        end_of_word = false;
+      }
+      *(--words) = c;
+    } else if (!end_of_word) {
+      end_of_word = true;
+    }
+  }
+  uintptr_t* esp_ = (uintptr_t*)(words - (4 - ((char*)*esp - words) % 4)); // stack align
+
+  // argv
+  *(--esp_) = 0; // argv[argc]
+  esp_ -= argc;
+  for (int i = 0; i < argc; ++i) {
+    esp_[i] = (uintptr_t)words; // argv[i]
+    while (*(words++))
+      ;
+  }
+  --esp_;
+  *esp_ = (uintptr_t)(esp_ + 1);
+  *(--esp_) = argc;
+  *(--esp_) = 0;
+  *esp = esp_;
+}
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* file_name_) {
@@ -100,6 +135,8 @@ static void start_process(void* file_name_) {
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
+
+    fill_stack(file_name, &if_.esp);
   }
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
