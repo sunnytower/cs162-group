@@ -3,7 +3,7 @@
 
 #include "threads/thread.h"
 #include <stdint.h>
-
+#include <list.h>
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
@@ -17,6 +17,27 @@ typedef tid_t pid_t;
 typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
+/* use for create new thread */
+struct load_info {
+  char* file_name;
+  struct process* parent;
+  struct semaphore sema_load;
+  bool load_success;
+};
+
+struct wait_info {
+  pid_t pid;                     /* Child process's pid */
+  struct process* child_process; /* Child process */
+  int exit_status;               /* Child process's exit status */
+  struct semaphore sema_wait;    /* semaphore for wait */
+  struct list_elem elem;
+};
+
+struct file_info {
+  int fd;
+  struct file* fp;
+  struct list_elem elem;
+};
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -27,6 +48,11 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
+  int exit_status;
+  struct wait_info* wait_info;
+  struct list children;
+  struct list open_files;
+  int next_fd; /* keep track of what next_fd should be */
 };
 
 void userprog_init(void);
@@ -44,4 +70,5 @@ tid_t pthread_join(tid_t);
 void pthread_exit(void);
 void pthread_exit_main(void);
 
+struct file* get_file(int fd);
 #endif /* userprog/process.h */
