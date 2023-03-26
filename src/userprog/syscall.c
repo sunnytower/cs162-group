@@ -27,42 +27,23 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   struct process* current = thread_current()->pcb;
   /* validate pointer */
   switch (args[0]) {
-    case SYS_PRACTICE:
-      // verify_arg_vaddr(&args[1]);
-      break;
-    case SYS_HALT:
-      break;
-    case SYS_EXIT:
-      break;
-    case SYS_EXEC:
-      verify_string(args[1]);
-      break;
-    case SYS_WAIT:
-      break;
-    case SYS_CREATE:
-      verify_string(args[1]);
-      break;
-    case SYS_REMOVE:
-      verify_string(args[1]);
-      break;
-    case SYS_OPEN:
-      verify_string(args[1]);
-      break;
-    case SYS_FILESIZE:
-      break;
     case SYS_READ:
-      verify_string(args[2]);
-      break;
     case SYS_WRITE:
-      // verify_arg_vaddr(&args[3]);
-      break;
+      verify_vaddr(&args[3], 4);
+    case SYS_CREATE:
     case SYS_SEEK:
-      // verify_arg_vaddr(&args[2]);
-      break;
+      verify_vaddr(&args[2], 4);
+    case SYS_EXIT:
+    case SYS_EXEC:
+    case SYS_WAIT:
+    case SYS_REMOVE:
+    case SYS_OPEN:
+    case SYS_FILESIZE:
     case SYS_TELL:
-      break;
     case SYS_CLOSE:
-      break;
+    case SYS_PRACTICE:
+      verify_vaddr(&args[1], 4);
+    case SYS_HALT:
     default:
       break;
   }
@@ -78,22 +59,26 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       exit(args[1]);
       break;
     case SYS_EXEC:
+      verify_string(args[1]);
       f->eax = process_execute(args[1]);
       break;
     case SYS_WAIT:
       f->eax = process_wait(args[1]);
       break;
     case SYS_CREATE:
+      verify_string(args[1]);
       lock_acquire(&file_lock);
       f->eax = filesys_create(args[1], args[2]);
       lock_release(&file_lock);
       break;
     case SYS_REMOVE:
+      verify_string(args[1]);
       lock_acquire(&file_lock);
       f->eax = filesys_remove(args[1]);
       lock_release(&file_lock);
       break;
     case SYS_OPEN: {
+      verify_string(args[1]);
       lock_acquire(&file_lock);
       struct file* fp = filesys_open(args[1]);
       if (fp == NULL) {
@@ -104,7 +89,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
         file_info->fp = fp;
         file_info->fd = current->next_fd;
         list_push_back(&(current->open_files), &(file_info->elem));
+        f->eax = current->next_fd;
         current->next_fd++;
+        if (strcmp((const char*)args[1], current->process_name) == 0) {
+          file_deny_write(fp);
+        }
       }
       lock_release(&file_lock);
       break;
@@ -121,6 +110,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     }
     case SYS_READ: {
+      verify_vaddr((void*)args[2], args[3]);
       switch (args[1]) {
         case 0: {
           uint8_t* p = (uint8_t*)args[2];
@@ -153,6 +143,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     }
     case SYS_WRITE: {
+      verify_vaddr((void*)args[2], args[3]);
       switch (args[1]) {
         case 0:
           f->eax = -1;
@@ -197,9 +188,16 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     }
     case SYS_CLOSE: {
       lock_acquire(&file_lock);
-      struct file* fp = get_file(args[1]);
-      if (fp != NULL) {
-        file_close(fp);
+      struct list* files = &(current->open_files);
+      for (struct list_elem* iter = list_begin(files); iter != list_end(files);
+           iter = list_next(iter)) {
+        struct file_info* info = list_entry(iter, struct file_info, elem);
+        if (info->fd == (int)args[1]) {
+          file_close(info->fp);
+          list_remove(iter);
+          free(info);
+          break;
+        }
       }
       lock_release(&file_lock);
       break;
@@ -216,7 +214,7 @@ static void exit(int status) {
 
 static inline bool valid_vaddr(uint8_t* vaddr) {
   uint32_t* pagedir = thread_current()->pcb->pagedir;
-  return vaddr != NULL && pagedir_get_page(pagedir, vaddr) != NULL;
+  return vaddr != NULL && is_user_vaddr(vaddr) && pagedir_get_page(pagedir, vaddr) != NULL;
 }
 
 /* validate size bytes of vaddr */
