@@ -8,6 +8,7 @@
 #include "userprog/pagedir.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "lib/float.h"
 static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) {
@@ -42,6 +43,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_TELL:
     case SYS_CLOSE:
     case SYS_PRACTICE:
+    case SYS_COMPUTE_E:
       verify_vaddr(&args[1], 4);
     case SYS_HALT:
     default:
@@ -202,6 +204,8 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       lock_release(&file_lock);
       break;
     }
+    case SYS_COMPUTE_E:
+      f->eax = sys_sum_to_e(args[1]);
     default:
       break;
   }
