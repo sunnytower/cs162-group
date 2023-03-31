@@ -169,6 +169,7 @@ static void start_process(void* load_info_) {
   }
 
   if (success) {
+    asm("fsave (%0)" : : "g"(&if_.fpu));
     fill_stack(file_name, &if_.esp);
 
     /* set wait_info */
