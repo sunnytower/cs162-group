@@ -24,6 +24,7 @@
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
 
+static struct list prio_ready_list;
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -107,7 +108,16 @@ void thread_init(void) {
   ASSERT(intr_get_level() == INTR_OFF);
 
   lock_init(&tid_lock);
-  list_init(&fifo_ready_list);
+  switch (active_sched_policy) {
+    case SCHED_FIFO:
+      list_init(&fifo_ready_list);
+      break;
+    case SCHED_PRIO:
+      list_init(&prio_ready_list);
+      break;
+    default:
+      break;
+  }
   list_init(&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -234,10 +244,17 @@ static void thread_enqueue(struct thread* t) {
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(is_thread(t));
 
-  if (active_sched_policy == SCHED_FIFO)
-    list_push_back(&fifo_ready_list, &t->elem);
-  else
-    PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+  switch (active_sched_policy) {
+    case SCHED_FIFO:
+      list_push_back(&fifo_ready_list, &t->elem);
+      break;
+    case SCHED_PRIO:
+      list_insert_ordered(&prio_ready_list, &t->elem, (list_less_func *)&thread_priority_greater, NULL);
+      break;
+    default:
+      PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+      break;
+  }
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -457,7 +474,10 @@ static struct thread* thread_schedule_fifo(void) {
 
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-  PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+  if (!list_empty(&prio_ready_list))
+    return list_entry(list_pop_front(&prio_ready_list), struct thread, elem);
+  else
+    return idle_thread;
 }
 
 /* Fair priority scheduler */
@@ -559,6 +579,10 @@ static tid_t allocate_tid(void) {
   lock_release(&tid_lock);
 
   return tid;
+}
+
+bool thread_priority_greater(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED) {
+  return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
 }
 
 /* Offset of `stack' member within `struct thread'.
