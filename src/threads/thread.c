@@ -218,7 +218,9 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   /* Add to run queue. */
   thread_unblock(t);
-
+  if (priority > thread_current()->priority) {
+    thread_yield();
+  }
   return tid;
 }
 
@@ -249,7 +251,8 @@ static void thread_enqueue(struct thread* t) {
       list_push_back(&fifo_ready_list, &t->elem);
       break;
     case SCHED_PRIO:
-      list_insert_ordered(&prio_ready_list, &t->elem, (list_less_func *)&thread_priority_greater, NULL);
+      list_insert_ordered(&prio_ready_list, &t->elem, (list_less_func*)&thread_priority_greater,
+                          NULL);
       break;
     default:
       PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
@@ -345,7 +348,13 @@ void thread_foreach(thread_action_func* func, void* aux) {
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority) { thread_current()->priority = new_priority; }
+void thread_set_priority(int new_priority) {
+  int old_priority = thread_current()->priority;
+  thread_current()->priority = new_priority;
+  if (new_priority < old_priority) {
+    thread_yield();
+  }
+}
 
 /* Returns the current thread's priority. */
 int thread_get_priority(void) { return thread_current()->priority; }
@@ -581,8 +590,10 @@ static tid_t allocate_tid(void) {
   return tid;
 }
 
-bool thread_priority_greater(const struct list_elem* a, const struct list_elem* b, void* aux UNUSED) {
-  return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
+bool thread_priority_greater(const struct list_elem* a, const struct list_elem* b,
+                             void* aux UNUSED) {
+  return list_entry(a, struct thread, elem)->priority >
+         list_entry(b, struct thread, elem)->priority;
 }
 
 /* Offset of `stack' member within `struct thread'.
