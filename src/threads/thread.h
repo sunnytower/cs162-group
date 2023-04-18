@@ -95,6 +95,10 @@ struct thread {
 
   struct list_elem sleep_elem;
   int64_t wakeup_time;
+  int origin_priority;
+  struct list holding_locks;
+  struct lock* waitting_lock;
+
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
