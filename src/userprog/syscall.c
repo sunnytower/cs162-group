@@ -30,9 +30,11 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   switch (args[0]) {
     case SYS_READ:
     case SYS_WRITE:
+    case SYS_PT_CREATE:
       verify_vaddr(&args[3], 4);
     case SYS_CREATE:
     case SYS_SEEK:
+    case SYS_SEMA_INIT:
       verify_vaddr(&args[2], 4);
     case SYS_EXIT:
     case SYS_EXEC:
@@ -44,8 +46,16 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_CLOSE:
     case SYS_PRACTICE:
     case SYS_COMPUTE_E:
+    case SYS_PT_JOIN:
+    case SYS_LOCK_INIT:
+    case SYS_LOCK_ACQUIRE:
+    case SYS_LOCK_RELEASE:
+    case SYS_SEMA_DOWN:
+    case SYS_SEMA_UP:
       verify_vaddr(&args[1], 4);
     case SYS_HALT:
+    case SYS_PT_EXIT:
+    case SYS_GET_TID:
     default:
       break;
   }
@@ -207,8 +217,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_COMPUTE_E:
       f->eax = sys_sum_to_e(args[1]);
     case SYS_PT_CREATE:
-    /* create a thread to run tfun */
-    thread_create(args[1], PRI_DEFAULT, , args[2]);
       break;
     case SYS_PT_JOIN:
       break;
