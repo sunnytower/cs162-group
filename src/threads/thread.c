@@ -201,6 +201,10 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   init_thread(t, name, priority);
   tid = t->tid = allocate_tid();
 
+  /* used for pthread. */
+#ifdef USERPROG
+  t->pcb = threac_current()->pcb;
+#endif
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame(t, sizeof *kf);
   kf->eip = NULL;
@@ -351,7 +355,7 @@ void thread_foreach(thread_action_func* func, void* aux) {
 void thread_set_priority(int new_priority) {
   struct thread* t = thread_current();
   t->origin_priority = new_priority;
-  if (new_priority > t->priority || list_empty(&t->holding_locks) ) {
+  if (new_priority > t->priority || list_empty(&t->holding_locks)) {
     t->priority = new_priority;
     thread_yield();
   }

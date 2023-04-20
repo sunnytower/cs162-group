@@ -24,7 +24,7 @@
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
-bool setup_thread(void (**eip)(void), void** esp);
+bool setup_thread(void (**eip)(void), void** esp, struct pthread_load_info* info);
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -46,6 +46,7 @@ void userprog_init(void) {
   ASSERT(success);
   list_init(&(t->pcb->children));
   list_init(&(t->pcb->open_files));
+  list_init(&(t->pcb->pthreads));
   t->pcb->next_fd = 2;
 }
 
@@ -156,6 +157,7 @@ static void start_process(void* load_info_) {
 
     list_init(&(t->pcb->children));
     list_init(&(t->pcb->open_files));
+    list_init(&(t->pcb->pthreads));
     t->pcb->next_fd = 2;
   }
 
@@ -637,7 +639,9 @@ struct file* get_file(int fd) {
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. You may find it necessary to change the
    function signature. */
-bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; }
+bool setup_thread(void (**eip)(void), void** esp, struct pthread_load_info* info) {
+  /* implement only 1 page for a user thread stack */
+}
 
 /* Starts a new thread with a new user stack running SF, which takes
    TF and ARG as arguments on its user stack. This new thread may be
@@ -648,7 +652,18 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; 
    This function will be implemented in Project 2: Multithreading and
    should be similar to process_execute (). For now, it does nothing.
    */
-tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) { return -1; }
+tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
+  /* tf and arg are the argument of sf */
+  struct pthread_load_info info;
+  info.sfun = sf;
+  info.tfun = tf;
+  info.arg = arg;
+  sema_init(&(info.sema_load), 0);
+
+  tid_t tid = thread_create(thread_current()->name, PRI_DEFAULT, start_pthread, &info);
+  sema_down(&(info.sema_load));
+  return tid;
+}
 
 /* A thread function that creates a new user thread and starts it
    running. Responsible for adding itself to the list of threads in
@@ -656,7 +671,42 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
 
    This function will be implemented in Project 2: Multithreading and
    should be similar to start_process (). For now, it does nothing. */
-static void start_pthread(void* exec_ UNUSED) {}
+static void start_pthread(void* load_info_) {
+  struct pthread_load_info* load_info = (struct pthread_load_info*)load_info_;
+
+  struct thread* t = thread_current();
+
+  /* Initialize interrupt frame */
+  struct intr_frame if_;
+  memset(&if_, 0, sizeof if_);
+  if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
+  if_.cs = SEL_UCSEG;
+  if_.eflags = FLAG_IF | FLAG_MBS;
+
+  /* setup user stack with setup_thread */
+  bool success = setup_thread(&if_.eip, &if_.esp, load_info);
+
+  if (success) {
+    asm("fsave (%0)" : : "g"(&if_.fpu));
+
+    /* TODO: create pthread_join_info*/
+  }
+
+  sema_up(&load_info->sema_load);
+
+  if (!success) {
+    thread_exit();
+  }
+
+  /* Start the pthread by simulating a return from an
+     interrupt, implemented by intr_exit (in
+     threads/intr-stubs.S).  Because intr_exit takes all of its
+     arguments on the stack in the form of a `struct intr_frame',
+     we just point the stack pointer (%esp) to our stack frame
+     and jump to it. */
+  asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
+  NOT_REACHED();
+}
 
 /* Waits for thread with TID to die, if that thread was spawned
    in the same process and has not been waited on yet. Returns TID on

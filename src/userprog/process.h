@@ -38,6 +38,14 @@ struct file_info {
   struct file* fp;
   struct list_elem elem;
 };
+
+struct pthread_load_info {
+  stub_fun sfun;
+  pthread_fun tfun;
+  void* arg;
+  struct semaphore sema_load;
+};
+
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -53,6 +61,7 @@ struct process {
   struct list children;
   struct list open_files;
   int next_fd; /* keep track of what next_fd should be */
+  struct list pthreads;
 };
 
 void userprog_init(void);

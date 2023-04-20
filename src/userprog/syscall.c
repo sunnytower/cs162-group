@@ -72,7 +72,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_EXEC:
       verify_string(args[1]);
+      lock_acquire(&file_lock);
       f->eax = process_execute(args[1]);
+      lock_release(&file_lock);
       break;
     case SYS_WAIT:
       f->eax = process_wait(args[1]);
