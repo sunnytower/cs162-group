@@ -70,6 +70,7 @@ struct process {
   struct list open_files;
   int next_fd; /* keep track of what next_fd should be */
   struct list pthreads;
+  int num_pthreads;
 };
 
 void userprog_init(void);
@@ -86,6 +87,7 @@ tid_t pthread_execute(stub_fun, pthread_fun, void*);
 void exit(int status);
 tid_t pthread_join(tid_t);
 void pthread_exit(void);
+void exit(int status);
 void pthread_exit_main(void);
 
 struct file* get_file(int fd);
