@@ -17,7 +17,6 @@ void syscall_init(void) {
 }
 
 static void verify_vaddr(uint8_t* vaddr, size_t size);
-static void exit(int status);
 // static void verify_arg_vaddr(uint8_t* vaddr);
 static void verify_string(const char* str);
 
@@ -219,19 +218,20 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     case SYS_COMPUTE_E:
       f->eax = sys_sum_to_e(args[1]);
     case SYS_PT_CREATE:
+      f->eax = pthread_execute(args[1], args[2], args[3]);
       break;
     case SYS_PT_JOIN:
+      f->eax = pthread_join(args[1]);
       break;
     case SYS_PT_EXIT:
+      if (thread_current() == current->main_thread)
+        pthread_exit_main();
+      else
+        pthread_exit();
       break;
     default:
       break;
   }
-}
-
-static void exit(int status) {
-  thread_current()->pcb->exit_status = status;
-  process_exit();
 }
 
 static inline bool valid_vaddr(uint8_t* vaddr) {
