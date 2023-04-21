@@ -658,6 +658,7 @@ tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
   info.sfun = sf;
   info.tfun = tf;
   info.arg = arg;
+  info.pcb = thread_current()->pcb;
   sema_init(&(info.sema_load), 0);
 
   tid_t tid = thread_create(thread_current()->name, PRI_DEFAULT, start_pthread, &info);
@@ -675,7 +676,7 @@ static void start_pthread(void* load_info_) {
   struct pthread_load_info* load_info = (struct pthread_load_info*)load_info_;
 
   struct thread* t = thread_current();
-
+  t->pcb = load_info->pcb;
   /* Initialize interrupt frame */
   struct intr_frame if_;
   memset(&if_, 0, sizeof if_);

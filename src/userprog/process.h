@@ -40,6 +40,7 @@ struct file_info {
 };
 
 struct pthread_load_info {
+  struct process* pcb;
   stub_fun sfun;
   pthread_fun tfun;
   void* arg;
