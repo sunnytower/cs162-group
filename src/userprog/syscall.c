@@ -17,7 +17,6 @@ void syscall_init(void) {
 }
 
 static void verify_vaddr(uint8_t* vaddr, size_t size);
-static void exit(int status);
 // static void verify_arg_vaddr(uint8_t* vaddr);
 static void verify_string(const char* str);
 
@@ -227,11 +226,6 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     default:
       break;
   }
-}
-
-static void exit(int status) {
-  thread_current()->pcb->exit_status = status;
-  process_exit();
 }
 
 static inline bool valid_vaddr(uint8_t* vaddr) {

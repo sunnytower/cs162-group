@@ -729,6 +729,11 @@ tid_t pthread_join(tid_t tid UNUSED) { return -1; }
    now, it does nothing. */
 void pthread_exit(void) {}
 
+void exit(int status) {
+  thread_current()->pcb->exit_status = status;
+  process_exit();
+}
+
 /* Only to be used when the main thread explicitly calls pthread_exit.
    The main thread should wait on all threads in the process to
    terminate properly, before exiting itself. When it exits itself, it

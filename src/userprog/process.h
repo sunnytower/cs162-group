@@ -47,6 +47,13 @@ struct pthread_load_info {
   struct semaphore sema_load;
 };
 
+struct pthread_join_info {
+  tid_t tid;
+  bool joined;
+  struct semaphore sema_join;
+  struct list_elem elem;
+};
+
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -76,6 +83,7 @@ bool is_main_thread(struct thread*, struct process*);
 pid_t get_pid(struct process*);
 
 tid_t pthread_execute(stub_fun, pthread_fun, void*);
+void exit(int status);
 tid_t pthread_join(tid_t);
 void pthread_exit(void);
 void pthread_exit_main(void);
