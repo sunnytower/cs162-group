@@ -154,8 +154,10 @@ static void start_process(void* load_info_) {
 
     list_init(&(t->pcb->children));
     list_init(&(t->pcb->open_files));
-    list_init(&(t->pcb->pthreads));
     t->pcb->next_fd = 2;
+
+    list_init(&(t->pcb->pthreads));
+    t->pcb->num_pthreads = 0;
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -209,7 +211,7 @@ static void start_process(void* load_info_) {
 }
 
 /* Waits for process with PID child_pid to die and returns its exit status.
-   If it was terminated by the kernel (i.e. killed due to an
+   If it was terminated by the kernel (i.iter. killed due to an
    exception), returns -1.  If child_pid is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given PID, returns -1
@@ -283,6 +285,13 @@ void process_exit(void) {
     file_close(info_to_free->fp);
     free(info_to_free);
   }
+
+  while (!list_empty(&cur->pcb->pthreads)) {
+    struct pthread_join_info* info_to_free =
+        list_entry(list_pop_front(&cur->pcb->pthreads), struct pthread_join_info, elem);
+    free(info_to_free);
+  }
+
   /* Free the PCB of this process and kill this thread
      Avoid race where PCB is freed before t->pcb is set to NULL
      If this happens, then an unfortuantely timed timer interrupt
@@ -637,7 +646,31 @@ struct file* get_file(int fd) {
    now, it does nothing. You may find it necessary to change the
    function signature. */
 bool setup_thread(void (**eip)(void), void** esp, struct pthread_load_info* info) {
-  /* implement only 1 page for a user thread stack */
+  *eip = (void (*)(void))info->sfun;
+
+  uint8_t* kpage;
+  bool success = false;
+
+  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+  if (kpage != NULL) {
+    size_t num_pthreads = thread_current()->pcb->num_pthreads;
+    success = install_page(((uint8_t*)PHYS_BASE) - (num_pthreads + 2) * PGSIZE, kpage, true);
+    if (success)
+      *esp = PHYS_BASE - (num_pthreads + 1) * PGSIZE;
+    else
+      palloc_free_page(kpage);
+  }
+
+  /* Put the arguments on the stack. */
+  if (success) {
+    uintptr_t* esp_ = (uintptr_t*)*esp; // stack pointer align
+    *(--esp_) = info->arg;
+    *(--esp_) = info->tfun;
+    *(--esp_) = 0;
+    *esp = esp_;
+  }
+
+  return success;
 }
 
 /* Starts a new thread with a new user stack running SF, which takes
@@ -687,7 +720,12 @@ static void start_pthread(void* load_info_) {
   if (success) {
     asm("fsave (%0)" : : "g"(&if_.fpu));
 
-    /* TODO: create pthread_join_info*/
+    struct pthread_join_info* join_info = malloc(sizeof(struct pthread_join_info));
+    join_info->tid = t->tid;
+    join_info->joined = false;
+    sema_init(&join_info->sema_join, 0);
+    list_push_back(&t->pcb->pthreads, &join_info->elem);
+    (t->pcb->num_pthreads)++;
   }
 
   sema_up(&load_info->sema_load);
@@ -713,7 +751,25 @@ static void start_pthread(void* load_info_) {
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-tid_t pthread_join(tid_t tid UNUSED) { return -1; }
+tid_t pthread_join(tid_t tid UNUSED) {
+  if (tid == TID_ERROR) {
+    return -1;
+  }
+  struct list* lst = &(thread_current()->pcb->pthreads);
+  for (struct list_elem* iter = list_begin(lst); iter != list_end(lst); iter = list_next(iter)) {
+    struct pthread_join_info* join_info = list_entry(iter, struct pthread_join_info, elem);
+    if (join_info->tid == tid) {
+      if (!join_info->joined) {
+        join_info->joined = true;
+        sema_down(&join_info->sema_join);
+        return tid;
+      } else {
+        return -1;
+      }
+    }
+  }
+  return -1;
+}
 
 void exit(int status) {
   thread_current()->pcb->exit_status = status;
@@ -728,7 +784,18 @@ void exit(int status) {
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit(void) {}
+void pthread_exit(void) {
+  struct thread* t = thread_current();
+  tid_t tid = t->tid;
+  struct list* lst = &t->pcb->pthreads;
+  for (struct list_elem* iter = list_begin(lst); iter != list_end(lst); iter = list_next(iter)) {
+    struct pthread_join_info* join_info = list_entry(iter, struct pthread_join_info, elem);
+    if (join_info->tid == tid) {
+      sema_up(&join_info->sema_join);
+      thread_exit();
+    }
+  }
+}
 
 /* Only to be used when the main thread explicitly calls pthread_exit.
    The main thread should wait on all threads in the process to
@@ -738,4 +805,11 @@ void pthread_exit(void) {}
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit_main(void) {}
+void pthread_exit_main(void) {
+  struct list* lst = &thread_current()->pcb->pthreads;
+  for (struct list_elem* e = list_begin(lst); e != list_end(lst); e = list_next(e)) {
+    struct pthread_join_info* join_info = list_entry(e, struct pthread_join_info, elem);
+    pthread_join(join_info->tid);
+  }
+  exit(0);
+}
