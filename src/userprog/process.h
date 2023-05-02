@@ -2,9 +2,8 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
-#include <list.h>
 #include <stdint.h>
-
+#include <list.h>
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
@@ -14,14 +13,11 @@
    the TID of the main thread of the process */
 typedef tid_t pid_t;
 
-/* Synchronization Types */
-typedef char lock_t;
-typedef char sema_t;
-
 /* Thread functions (Project 2: Multithreading) */
 typedef void (*pthread_fun)(void*);
 typedef void (*stub_fun)(pthread_fun, void*);
 
+/* use for create new thread */
 struct load_info {
   char* file_name;
   struct process* parent;
@@ -38,23 +34,10 @@ struct wait_info {
 };
 
 struct file_info {
-  int fd;          /* File descriptor */
-  struct file* fp; /* File pointer */
+  int fd;
+  struct file* fp;
   struct list_elem elem;
 };
-
-struct lock_info {
-  lock_t ld;
-  struct lock lock;
-  struct list_elem elem;
-};
-
-struct sema_info {
-  sema_t sd;
-  struct semaphore sema;
-  struct list_elem elem;
-};
-
 /* The process control block for a given process. Since
    there can be multiple threads per process, we need a separate
    PCB from the TCB. All TCBs in a process will have a pointer
@@ -62,21 +45,14 @@ struct sema_info {
    of the process, which is `special`. */
 struct process {
   /* Owned by process.c. */
-  uint32_t* pagedir;           /* Page directory. */
-  char process_name[16];       /* Name of the main thread */
-  struct thread* main_thread;  /* Pointer to main thread */
-  int exit_status;             /* Exit status of current process */
-  struct wait_info* wait_info; /* Infos of this process */
-  struct list children;        /* Child processes */
-  struct list files;           /* Opend files */
-  int fd;                      /* Next fd(file descriptor) */
-  struct list pthreads;        /* Pthreads */
-  int num_pthreads;            /* Num of pthreads spawned. */
-  struct semaphore main_join;  /* Semaphore for join on main thread. */
-  struct list locks;           /* User-Level locks. */
-  lock_t ld;                   /* Next ld(lock descriptor) */
-  struct list semaphores;      /* User-Level semaphores. */
-  sema_t sd;                   /* Next sd(semaphore descriptor) */
+  uint32_t* pagedir;          /* Page directory. */
+  char process_name[16];      /* Name of the main thread */
+  struct thread* main_thread; /* Pointer to main thread */
+  int exit_status;
+  struct wait_info* wait_info;
+  struct list children;
+  struct list open_files;
+  int next_fd; /* keep track of what next_fd should be */
 };
 
 void userprog_init(void);
@@ -84,32 +60,15 @@ void userprog_init(void);
 pid_t process_execute(const char* file_name);
 int process_wait(pid_t);
 void process_exit(void);
-void exit(int status);
 void process_activate(void);
 
 bool is_main_thread(struct thread*, struct process*);
 pid_t get_pid(struct process*);
 
-struct file* get_file(int fd);
-
-struct pthread_load_info {
-  stub_fun sfun;
-  pthread_fun tfun;
-  void* arg;
-  struct semaphore sema_load;
-  bool load_success;
-};
-
-struct pthread_join_info {
-  tid_t tid;
-  bool joined;
-  struct semaphore sema_join;
-  struct list_elem elem;
-};
-
 tid_t pthread_execute(stub_fun, pthread_fun, void*);
 tid_t pthread_join(tid_t);
-void pthread_exit(const void*);
+void pthread_exit(void);
 void pthread_exit_main(void);
 
+struct file* get_file(int fd);
 #endif /* userprog/process.h */

@@ -24,7 +24,6 @@
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
 
-static struct list prio_ready_list;
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -108,16 +107,7 @@ void thread_init(void) {
   ASSERT(intr_get_level() == INTR_OFF);
 
   lock_init(&tid_lock);
-  switch (active_sched_policy) {
-    case SCHED_FIFO:
-      list_init(&fifo_ready_list);
-      break;
-    case SCHED_PRIO:
-      list_init(&prio_ready_list);
-      break;
-    default:
-      break;
-  }
+  list_init(&fifo_ready_list);
   list_init(&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -200,7 +190,7 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
   /* Initialize thread. */
   init_thread(t, name, priority);
   tid = t->tid = allocate_tid();
-  t->pcb = thread_current()->pcb;
+
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame(t, sizeof *kf);
   kf->eip = NULL;
@@ -218,9 +208,7 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
   /* Add to run queue. */
   thread_unblock(t);
-  if (priority > thread_current()->priority) {
-    thread_yield();
-  }
+
   return tid;
 }
 
@@ -246,18 +234,10 @@ static void thread_enqueue(struct thread* t) {
   ASSERT(intr_get_level() == INTR_OFF);
   ASSERT(is_thread(t));
 
-  switch (active_sched_policy) {
-    case SCHED_FIFO:
-      list_push_back(&fifo_ready_list, &t->elem);
-      break;
-    case SCHED_PRIO:
-      list_insert_ordered(&prio_ready_list, &t->elem, (list_less_func*)&thread_priority_greater,
-                          NULL);
-      break;
-    default:
-      PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
-      break;
-  }
+  if (active_sched_policy == SCHED_FIFO)
+    list_push_back(&fifo_ready_list, &t->elem);
+  else
+    PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -348,14 +328,7 @@ void thread_foreach(thread_action_func* func, void* aux) {
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority) {
-  struct thread* t = thread_current();
-  t->origin_priority = new_priority;
-  if (new_priority > t->priority || list_empty(&t->holding_locks)) {
-    t->priority = new_priority;
-    thread_yield();
-  }
-}
+void thread_set_priority(int new_priority) { thread_current()->priority = new_priority; }
 
 /* Returns the current thread's priority. */
 int thread_get_priority(void) { return thread_current()->priority; }
@@ -457,9 +430,6 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->priority = priority;
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
-  t->origin_priority = priority;
-  list_init(&t->holding_locks);
-  t->waitting_lock = NULL;
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
@@ -487,10 +457,7 @@ static struct thread* thread_schedule_fifo(void) {
 
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-  if (!list_empty(&prio_ready_list))
-    return list_entry(list_pop_front(&prio_ready_list), struct thread, elem);
-  else
-    return idle_thread;
+  PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
 }
 
 /* Fair priority scheduler */
@@ -592,12 +559,6 @@ static tid_t allocate_tid(void) {
   lock_release(&tid_lock);
 
   return tid;
-}
-
-bool thread_priority_greater(const struct list_elem* a, const struct list_elem* b,
-                             void* aux UNUSED) {
-  return list_entry(a, struct thread, elem)->priority >
-         list_entry(b, struct thread, elem)->priority;
 }
 
 /* Offset of `stack' member within `struct thread'.
