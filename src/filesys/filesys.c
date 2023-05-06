@@ -6,11 +6,96 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "threads/synch.h"
 
 /* Partition that contains the file system. */
 struct block* fs_device;
 
 static void do_format(void);
+
+#define BUFFER_CACHE_SIZE 64
+/* buffer cache table implement. */
+/* TODO: modified filesys_done() to write back dirty block */
+struct buffer_cache_entry {
+  /* */
+  bool valid;
+  /* clock algorithm. */
+  bool dirty;
+  bool used;
+  /* used to count if any thread actively writing or reading. */
+  int access_cnt;
+  int wait_cnt;
+  struct condition cond;
+  block_sector_t sector;
+  uint8_t buffer_cache[BLOCK_SECTOR_SIZE];
+};
+static struct lock buffer_cache_lock;
+static int clock_head;
+static struct buffer_cache_entry buffer_cache_table[BUFFER_CACHE_SIZE];
+
+void buffer_cache_init() {
+  lock_init(&buffer_cache_lock);
+  clock_head = 0;
+  for (int i = 0; i < BUFFER_CACHE_SIZE; ++i) {
+    buffer_cache_table[i].valid = false;
+    buffer_cache_table[i].dirty = false;
+    buffer_cache_table[i].used = false;
+    buffer_cache_table[i].access_cnt = 0;
+    buffer_cache_table[i].wait_cnt = 0;
+    cond_init(&buffer_cache_table[i].cond);
+  }
+}
+
+/* return index of table entry */
+int buffer_cache_evict() {
+  while (true) {
+    struct buffer_cache_entry* entry = &buffer_cache_table[clock_head];
+    lock_acquire(&buffer_cache_lock);
+    if (entry->access_cnt + entry->wait_cnt == 0) {
+      if (entry->used) {
+        entry->used = false;
+      } else {
+        if (entry->dirty) {
+          block_write(fs_device, entry->sector, entry->buffer_cache);
+          entry->dirty = false;
+        }
+        int index = clock_head;
+        clock_head = (clock_head + 1) % BUFFER_CACHE_SIZE;
+        lock_release(&buffer_cache_lock);
+        return index;
+      }
+    }
+    clock_head = (clock_head + 1) % BUFFER_CACHE_SIZE;
+    lock_release(&buffer_cache_lock);
+  }
+}
+
+/* acquire a block and return index of buffer_cache */
+int buffer_cache_acquire(block_sector_t sector) {
+  lock_acquire(&buffer_cache_lock);
+  for (int i = 0; i < BUFFER_CACHE_SIZE; ++i) {
+    struct buffer_cache_entry* entry = &buffer_cache_table[i];
+    if (entry->valid && entry->sector == sector) {
+      while(entry->access_cnt > 0) {
+        entry->wait_cnt++;
+        cond_wait(&entry->cond, &buffer_cache_lock);
+        entry->wait_cnt--;
+      }
+      entry->access_cnt++;
+      lock_release(&buffer_cache_lock);
+      return i;
+    }
+  }
+  int index = buffer_cache_evict();
+  buffer_cache_table[index].valid = true;
+  buffer_cache_table[index].used = true;
+  buffer_cache_table[index].sector = sector;
+  buffer_cache_table[index].access_cnt = 1;
+  buffer_cache_table[index].wait_cnt = 0;
+  lock_release(&buffer_cache_lock);
+  block_read(fs_device, sector, buffer_cache_table[index].buffer_cache);
+  return index;
+}
 
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
@@ -26,6 +111,7 @@ void filesys_init(bool format) {
     do_format();
 
   free_map_open();
+  buffer_cache_init();
 }
 
 /* Shuts down the file system module, writing any unwritten data
