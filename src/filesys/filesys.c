@@ -46,11 +46,10 @@ void buffer_cache_init() {
   }
 }
 
-/* return index of table entry */
+/* return index of table entry need hold the lock */
 int buffer_cache_evict() {
   while (true) {
     struct buffer_cache_entry* entry = &buffer_cache_table[clock_head];
-    lock_acquire(&buffer_cache_lock);
     if (entry->access_cnt + entry->wait_cnt == 0) {
       if (entry->used) {
         entry->used = false;
@@ -61,12 +60,10 @@ int buffer_cache_evict() {
         }
         int index = clock_head;
         clock_head = (clock_head + 1) % BUFFER_CACHE_SIZE;
-        lock_release(&buffer_cache_lock);
         return index;
       }
     }
     clock_head = (clock_head + 1) % BUFFER_CACHE_SIZE;
-    lock_release(&buffer_cache_lock);
   }
 }
 
@@ -135,16 +132,23 @@ void filesys_init(bool format) {
   inode_init();
   free_map_init();
 
+  buffer_cache_init();
   if (format)
     do_format();
 
   free_map_open();
-  buffer_cache_init();
 }
 
 /* Shuts down the file system module, writing any unwritten data
    to disk. */
-void filesys_done(void) { free_map_close(); }
+void filesys_done(void) {
+  for (int i = 0; i < BUFFER_CACHE_SIZE; ++i) {
+    if (buffer_cache_table[i].valid && buffer_cache_table[i].dirty) {
+      block_write(fs_device, buffer_cache_table[i].sector, buffer_cache_table[i].buffer_cache);
+    }
+  }
+    free_map_close(); 
+}
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
