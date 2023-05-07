@@ -70,13 +70,14 @@ int buffer_cache_evict() {
   }
 }
 
-/* acquire a block and return index of buffer_cache */
-int buffer_cache_acquire(block_sector_t sector) {
+/* load sector into buffer if not exist return index */
+int buffer_cache_acquire(block_sector_t sector, bool read) {
   lock_acquire(&buffer_cache_lock);
   for (int i = 0; i < BUFFER_CACHE_SIZE; ++i) {
+    /* find sector */
     struct buffer_cache_entry* entry = &buffer_cache_table[i];
     if (entry->valid && entry->sector == sector) {
-      while(entry->access_cnt > 0) {
+      while (entry->access_cnt > 0) {
         entry->wait_cnt++;
         cond_wait(&entry->cond, &buffer_cache_lock);
         entry->wait_cnt--;
@@ -93,10 +94,37 @@ int buffer_cache_acquire(block_sector_t sector) {
   buffer_cache_table[index].access_cnt = 1;
   buffer_cache_table[index].wait_cnt = 0;
   lock_release(&buffer_cache_lock);
-  block_read(fs_device, sector, buffer_cache_table[index].buffer_cache);
+  if (read) {
+    block_read(fs_device, sector, buffer_cache_table[index].buffer_cache);
+  }
   return index;
 }
 
+void buffer_cache_release(int index) {
+  lock_acquire(&buffer_cache_lock);
+  struct buffer_cache_entry* entry = &buffer_cache_table[index];
+  entry->access_cnt--;
+  if (entry->wait_cnt >= 0) {
+    cond_signal(&entry->cond, &buffer_cache_lock);
+  }
+  lock_release(&buffer_cache_lock);
+}
+
+void buffer_cache_read(block_sector_t sector, uint8_t* buffer, off_t offset, off_t size) {
+  int index = buffer_cache_acquire(sector, true);
+  memcpy(buffer, buffer_cache_table[index].buffer_cache + offset, size);
+  buffer_cache_release(index);
+}
+
+void buffer_cache_write(block_sector_t sector, uint8_t* buffer, off_t offset, off_t size) {
+  /* may read the sector first */
+  off_t sector_left = BLOCK_SECTOR_SIZE - offset;
+  bool read = offset > 0 || size < sector_left;
+  int index = buffer_cache_acquire(sector, read);
+  memcpy(buffer_cache_table[index].buffer_cache + offset, buffer, size);
+  buffer_cache_table[index].dirty = true;
+  buffer_cache_release(index);
+}
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
 void filesys_init(bool format) {
