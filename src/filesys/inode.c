@@ -13,8 +13,9 @@
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 #define DIRECT_BLOCK_NUM 124
+/* block_sector_t is 4bytes, sector size is 512bytes 512 / 4 = 128 */
+#define INDIRECT_BLOCK_NUM 128
 struct inode_disk {
-  block_sector_t start; /* First data sector. */
   off_t length;         /* File size in bytes. */
   unsigned magic;       /* Magic number. */
   uint32_t unused[125]; /* Not used. */
@@ -23,6 +24,37 @@ struct inode_disk {
   block_sector_t double_indirect;
 };
 
+static block_sector_t index_to_sector(block_sector_t inode_sector, size_t sector_index) {
+  block_sector_t sector;
+  if (sector_index < DIRECT_BLOCK_NUM) {
+    /* direct index */
+    buffer_cache_read(inode_sector, &sector,
+                      offsetof(struct inode_disk, direct) + sector_index * sizeof(block_sector_t),
+                      sizeof(block_sector_t));
+  } else if (sector_index < DIRECT_BLOCK_NUM + INDIRECT_BLOCK_NUM) {
+    /* single indirect index */
+    block_sector_t single_indirect;
+    buffer_cache_read(inode_sector, &single_indirect, offsetof(struct inode_disk, single_indirect),
+                      sizeof(block_sector_t));
+    buffer_cache_read(single_indirect, &sector,
+                      (sector_index - DIRECT_BLOCK_NUM) * sizeof(block_sector_t),
+                      sizeof(block_sector_t));
+  } else {
+    /* double indirect index */
+    block_sector_t double_indirect;
+    buffer_cache_read(inode_sector, &double_indirect, offsetof(struct inode_disk, double_indirect),
+                      sizeof(block_sector_t));
+    sector_index = sector_index - DIRECT_BLOCK_NUM - INDIRECT_BLOCK_NUM;
+    block_sector_t single_indirect;
+    buffer_cache_read(double_indirect, &single_indirect,
+                      (sector_index / INDIRECT_BLOCK_NUM) * sizeof(block_sector_t),
+                      sizeof(block_sector_t));
+    buffer_cache_read(single_indirect, &sector,
+                      (sector_index % INDIRECT_BLOCK_NUM) * sizeof(block_sector_t),
+                      sizeof(block_sector_t));
+  }
+  return sector;
+}
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
 static inline size_t bytes_to_sectors(off_t size) { return DIV_ROUND_UP(size, BLOCK_SECTOR_SIZE); }
@@ -43,9 +75,11 @@ struct inode {
    POS. */
 static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
   ASSERT(inode != NULL);
-  if (pos < inode->data.length)
-    return inode->data.start + pos / BLOCK_SECTOR_SIZE;
-  else
+  if (pos < inode->data.length) {
+    int sector_index = pos / BLOCK_SECTOR_SIZE;
+    return index_to_sector(inode->sector, sector_index);
+  }
+  else 
     return -1;
 }
 
