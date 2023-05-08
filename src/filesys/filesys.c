@@ -15,7 +15,6 @@ static void do_format(void);
 
 #define BUFFER_CACHE_SIZE 64
 /* buffer cache table implement. */
-/* TODO: modified filesys_done() to write back dirty block */
 struct buffer_cache_entry {
   /* */
   bool valid;
@@ -107,13 +106,13 @@ void buffer_cache_release(int index) {
   lock_release(&buffer_cache_lock);
 }
 
-void buffer_cache_read(block_sector_t sector, uint8_t* buffer, off_t offset, off_t size) {
+void buffer_cache_read(block_sector_t sector, void* buffer, off_t offset, off_t size) {
   int index = buffer_cache_acquire(sector, true);
   memcpy(buffer, buffer_cache_table[index].buffer_cache + offset, size);
   buffer_cache_release(index);
 }
 
-void buffer_cache_write(block_sector_t sector, uint8_t* buffer, off_t offset, off_t size) {
+void buffer_cache_write(block_sector_t sector, void* buffer, off_t offset, off_t size) {
   /* may read the sector first */
   off_t sector_left = BLOCK_SECTOR_SIZE - offset;
   bool read = offset > 0 || size < sector_left;
